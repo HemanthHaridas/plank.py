@@ -137,8 +137,28 @@ def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbo
         nshellpair      =   ceil(nshellpairs/nprocs)
         shellpairi      =   rank*nshellpair
         shellpairf      =   (rank+1)*nshellpair
-        kineticresults  =   kinetic(shellpairs[shellpairi:shellpairf])
+        eniresults      =   nuclear(shellpairs[shellpairi:shellpairf], atomobjects)
 
+        if rank != 0:
+            comm.send(eniresults, dest=0)
+        else:
+            for result in eniresults:
+                results.append(result)
+            for proc in range(1, nprocs):
+                eniresults  =   comm.recv(source=proc)
+                for result in eniresults:
+                    results.append(result)
+
+        if rank == 0:
+            molecule.enimat =   results
+            if verbose is True:
+                logFile(molecule, results, "ENI INTEGRALS", lastaccess)
+                lastaccess  =   lastaccess+1
+
+        molecule.enimat =   comm.bcast(results, root=0)
+        return lastaccess
+        MPI.Finalize
+        
 
 class Basis(object):
     """ docstring for Basis
