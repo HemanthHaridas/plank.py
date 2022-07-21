@@ -29,8 +29,10 @@ Format for the input file is as follows:
 [charge] [multiplicity]
 [number of atoms]
 [atom name] [coordinates]
-[verbose] (set 0 for low and 1 for high)
+[max number of SCF iterations] [verbose] (set 0 for low and 1 for high)
 ```
+The user can choose to leave the last line blank, which would result in max number of SCF iterations = 100 and verbose = 0, meaning no log file would be generated.
+
 Sample input calculates the energy of a water molecule at sto-3g level of theory.
 
 ```
