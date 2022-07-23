@@ -29,7 +29,7 @@ Format for the input file is as follows:
 [charge] [multiplicity]
 [number of atoms]
 [atom name] [coordinates]
-[max number of SCF iterations] [verbose] (set 0 for low and 1 for high)
+[max number of SCF iterations] [DIIS] (set T for DIIS and F for Not using DIIS)
 ```
 The user can choose to leave the last line blank, which would result in max number of SCF iterations = 100 and verbose = 0, meaning no log file would be generated.
 
@@ -43,7 +43,7 @@ H                     0.866811829        0.601435779   0.000000
 H                    -0.866811829        0.601435779   0.000000
 O                     0.000000000       -0.075791844   0.000000
 ```
-Running this input must generate four files overlap.txt, kinetic.txt, nuclear.txt and electron.txt. The contents of the files must resemble the ones that have been copied below.
+Running this input must generate four files overlap.<identifier>.txt, kinetic.<identifier>.txt, nuclear.<identifier>.txt and electron.<identifier>.txt. The contents of the overlap, kinetic and nuclear files must resemble the ones that have been copied below.
 
 **overlap.txt**
 ```
@@ -66,7 +66,16 @@ Running this input must generate four files overlap.txt, kinetic.txt, nuclear.tx
      0.115     0.115     0.000     0.000     0.000     2.529     0.000
      0.000     0.000     0.000     0.000     0.000     0.000     2.529
 ```
-
+**nuclear.txt**
+```
+    -5.300    -1.067    -1.232    -2.977    -1.822    -1.472     0.000
+    -1.067    -5.300    -1.232    -2.977     1.822    -1.472     0.000
+    -1.232    -1.232   -61.581    -7.411     0.000    -0.014     0.000
+    -2.977    -2.977    -7.411   -10.009     0.000    -0.177     0.000
+    -1.822     1.822     0.000     0.000    -9.988     0.000     0.000
+    -1.472    -1.472    -0.014    -0.177     0.000    -9.944     0.000
+     0.000     0.000     0.000     0.000     0.000     0.000    -9.876
+```
 ### References
 1. https://www.mathematica-journal.com/2012/02/16/evaluation-of-gaussian-molecular-integrals/
 2. Cook, David B. Handbook of computational quantum chemistry. Courier Corporation, 2005.
