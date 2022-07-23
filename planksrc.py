@@ -355,7 +355,7 @@ class Geometry(object):
         self.totalenergy    =   0.0
         self.diisfock       =   []
         self.diiserror      =   []
-        self.DIIS           =   True
+        self.DIIS
 
     def readgeometry(self):
         with open(self.inputfile) as file:
@@ -379,10 +379,12 @@ class Geometry(object):
                 coords          =   [float(x) for x in atomdata[1:]]
                 self.nelectrons +=  charge
                 self.geometry.append(Atom(atomname, coords, charge, self.basisset))
-            iterverboseline     =   inputdata[-1].split()
-            if iterverboseline  != []:
-                self.maxiterations  =   int(iterverboseline[0])   
-            
+            iterdiisline     =   inputdata[-1].split()
+            if iterdiisline  != []:
+                self.maxiterations  =   int(iterdiisline[0])   
+                self.DIIS           =   True if (iterdiisline[1] == 'T') else False
+
+
 inputfilename       =   argv[1]
 logfilename         =   inputfilename[:-4]+".log"
 molecule            =   Geometry(inputfilename)
