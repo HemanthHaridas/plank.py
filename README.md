@@ -43,7 +43,7 @@ H                     0.866811829        0.601435779   0.000000
 H                    -0.866811829        0.601435779   0.000000
 O                     0.000000000       -0.075791844   0.000000
 ```
-Running this input must generate four files overlap.<identifier>.txt, kinetic.<identifier>.txt, nuclear.<identifier>.txt and electron.<identifier>.txt. The contents of the overlap, kinetic and nuclear files must resemble the ones that have been copied below.
+Running this input must generate four files overlap.[identifier].txt, kinetic.[identifier].txt, nuclear.[identifier].txt and electronic.[identifier].txt. The contents of the overlap, kinetic and nuclear files must resemble the ones that have been copied below.
 
 **overlap.txt**
 ```
