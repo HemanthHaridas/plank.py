@@ -4,8 +4,8 @@ cimport numpy   as  np
 
 from scipy.special  import  comb, factorial2
 from libc.math      cimport exp,  pow
-from numpy          import  dot,  pi, diag, amax   
-from numpy.linalg   import  eigh
+from numpy          import  dot,  pi, diag, amax, trace, isclose
+from numpy.linalg   import  eigh, solve
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -60,11 +60,72 @@ def computedensity(int nelectrons, np.ndarray[np.float64_t, ndim=2] overlapmat):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def diisorthogonalization(np.ndarray[np.float64_t, ndim=2] overlapmat):
+    eigenvalues, eigenvectors   =   eigh(overlapmat)
+    halfeigmat                  =   diag((eigenvalues)**-0.5)
+    rightmat                    =   dot(eigenvectors, halfeigmat)
+    orthomat                    =   dot(rightmat, eigenvectors.T)
+    return orthomat
+
+@cython.boundscheck(False)
+def diisEngine(molecule, np.ndarray[np.float64_t, ndim=2] fock, np.ndarray[np.float64_t, ndim=2] density):
+    cdef int dimensions         =   fock[0].size
+    eigenvalues, eigenvectors   =   eigh(molecule.overlapmat)
+    halfeigmat                  =   diag((eigenvalues)**-0.5)
+    rightmat                    =   dot(eigenvectors, halfeigmat)
+    orthomat                    =   dot(rightmat, eigenvectors.T)
+    t_errorvector               =   dot(fock, dot(density, molecule.overlapmat))-dot(molecule.overlapmat, dot(density, fock))
+    leftmat                     =   dot(orthomat.T, t_errorvector)
+    errorvector                 =   dot(leftmat, orthomat)
+    molecule.diisfock.append(fock)
+    molecule.diiserror.append(errorvector)
+    cdef int fockdimension               =   len(molecule.diisfock)
+    if fockdimension > 6:
+        del molecule.diisfock[0]
+        del molecule.diiserror[0]
+        fockdimension   =   fockdimension-1
+    cdef np.ndarray[np.float64_t, ndim=2] bmatrix   =   np.zeros((fockdimension+1, fockdimension+1))
+    bmatrix[-1,:]               =   -1.0
+    bmatrix[:,-1]               =   -1.0
+    bmatrix[-1,-1]              =   0.0
+    for index1 in range(0, fockdimension):
+        for index2 in range(0, index1+1):
+            bmatrix[index1, index2] =   trace(dot(molecule.diiserror[index1].T, molecule.diiserror[index2]))
+            bmatrix[index2, index1] =   trace(dot(molecule.diiserror[index1].T, molecule.diiserror[index2]))
+    cdef np.ndarray[np.float64_t, ndim=1] residue    =   np.zeros(fockdimension+1)
+    residue[-1]                 =   -1.0
+    cdef np.ndarray[np.float64_t, ndim=1] weights    =   solve(bmatrix, residue)
+    assert isclose(sum(weights[:-1]),1.0)
+    cdef np.ndarray[np.float64_t, ndim=2] newfock    =   np.zeros((dimensions, dimensions))
+    for index, fockelement in enumerate(molecule.diisfock):
+        newfock =   newfock+(weights[index]*fockelement)
+    return newfock
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def restrictedhatreefock(int nelectrons, np.ndarray[np.float64_t, ndim=2] corehamiltonian, np.ndarray[np.float64_t, ndim=2] orthogonalmat, np.ndarray[np.float64_t, ndim=2] densitymat, np.ndarray[np.float64_t, ndim=4] erimat):
     cdef int nbasis =   corehamiltonian[0].size
     cdef np.ndarray[np.float64_t, ndim=2]   hamiltonianmat  =   computehamiltonian(densitymat, erimat)
     cdef np.ndarray[np.float64_t, ndim=2]   fockmatrix      =   hamiltonianmat+corehamiltonian
     cdef np.ndarray[np.float64_t, ndim=2]   orthofockmatrix =   dot(orthogonalmat.conj().T, dot(fockmatrix, orthogonalmat))
+    cdef np.ndarray[np.float64_t, ndim=1]   orbitalenergies =   np.zeros(nbasis)
+    cdef np.ndarray[np.float64_t, ndim=2]   orthocoeffs     =   np.zeros((nbasis, nbasis))
+    orbitalenergies, orthocoeffs                            =   eigh(orthofockmatrix)
+    cdef np.ndarray[np.float64_t, ndim=2]   canonicalcoeffs =   dot(orthogonalmat, orthocoeffs)
+    cdef np.ndarray[np.float64_t, ndim=2]   t_densitymat    =   computedensity(nelectrons, canonicalcoeffs)
+    cdef double maxdensitydiff
+    cdef double rmsdensitydiff
+    maxdensitydiff, rmsdensitydiff                          =   checkconvergence(densitymat, t_densitymat)
+    return orthofockmatrix, fockmatrix, hamiltonianmat, orbitalenergies, canonicalcoeffs, t_densitymat, maxdensitydiff, rmsdensitydiff
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def restrictedhatreefockDIIS(molecule, int nelectrons, np.ndarray[np.float64_t, ndim=2] corehamiltonian, np.ndarray[np.float64_t, ndim=2] orthogonalmat, np.ndarray[np.float64_t, ndim=2] densitymat, np.ndarray[np.float64_t, ndim=4] erimat):
+    cdef int nbasis =   corehamiltonian[0].size
+    cdef np.ndarray[np.float64_t, ndim=2]   hamiltonianmat  =   computehamiltonian(densitymat, erimat)
+    cdef np.ndarray[np.float64_t, ndim=2]   fockmatrix      =   hamiltonianmat+corehamiltonian
+    cdef np.ndarray[np.float64_t, ndim=2]   diisfock        =   diisEngine(molecule, fockmatrix, densitymat)
+    cdef np.ndarray[np.float64_t, ndim=2]   orthofockmatrix =   dot(orthogonalmat.conj().T, dot(diisfock, orthogonalmat))
     cdef np.ndarray[np.float64_t, ndim=1]   orbitalenergies =   np.zeros(nbasis)
     cdef np.ndarray[np.float64_t, ndim=2]   orthocoeffs     =   np.zeros((nbasis, nbasis))
     orbitalenergies, orthocoeffs                            =   eigh(orthofockmatrix)

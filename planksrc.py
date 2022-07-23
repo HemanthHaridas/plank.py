@@ -1,28 +1,39 @@
-from numpy                      import array, float32, int32, zeros, pi, exp, dot, save
-from numpy.linalg               import norm, eigh
+from numpy                      import array, float32, int32, zeros, pi, exp, dot, savetxt, diag, trace
+from numpy.linalg               import norm, eigh, solve
 from math                       import ceil, sqrt, log
 from scipy.special              import factorial2, comb
 from sys                        import argv
 from itertools                  import combinations_with_replacement, combinations
 from mpi4py                     import MPI
-from yaml                       import safe_load
 from plank.routines.oneelectron import overlapcgtos, kineticcgtos
 from plank.routines.twoelectron import nuclearcgtos, ericgtos
+from plank.routines.hatreefock  import computecorehamiltonian, canonicalorthogonalization, computehamiltonian
+from plank.routines.hatreefock  import restrictedhatreefock, restrictedhatreefockDIIS, totalenergy
+from plank.routines.hatreefock  import diisorthogonalization
+from yaml                       import safe_load
 
 
-verbosity   =   {"0": False, "1": True}
-
-with open("periodicTableMass.yaml") as periodic:
+with open("periodicTable.yaml") as periodic:
     periodictable   =   safe_load(periodic)
     periodicTable   =   {y: x[y] for x in periodictable for y in x}
 
 
 def getatom(atomname):
-    return periodicTable[atomname][0]
+    return periodicTable[atomname]
 
 
-def getmass(atomname):
-    return periodicTable[atomname][1]
+def nuclearenergy(atomobjects):
+    atompairs       =   list(combinations(atomobjects,2))
+    nuclearenergy   =   0.0
+    for atompair in atompairs:
+        center1         =   atompair[0].center
+        charge1         =   atompair[0].charge
+        center2         =   atompair[1].center
+        charge2         =   atompair[1].charge
+        distance        =   norm(center1-center2)
+        energy          =   charge1*charge2/distance
+        nuclearenergy   =   nuclearenergy+energy
+    return nuclearenergy
 
 
 def overlap(basisobjects):
@@ -57,57 +68,9 @@ def electronic(basisobjects):
     return eriintegrals
 
 
-def logFile(molecule, data, heading, lastaccess=0):
-    logfilename     =   molecule.inputfile[:-4]+".log"
-    accessmodifier  =   "w" if (lastaccess == 0) else "a"
-    with open(logfilename, accessmodifier) as logf:
-
-        if heading == "INPUT COORDINATES":
-            pass
-
-        if heading == "TRANSFORMED COORDINATES":
-            pass
-
-        if heading == "OVERLAP INTEGRALS":
-            logf.write("{:^45}\n".format(heading))
-            logf.write("{:^45}\n".format("-"*40))
-            logf.write("{:^15}{:^15}{:^15}\n".format("INDEX1", "INDEX2", "OVERLAP"))
-            logf.write("{:^45}\n".format("-"*40))
-            for result in data:
-                logf.write("{:8.0f}{:15.0f}{:17.3f}\n".format(result[1], result[2], result[0]))
-        logf.write("{}".format('\n'))
-
-        if heading == "KINETIC INTEGRALS":
-            logf.write("{:^45}\n".format(heading))
-            logf.write("{:^45}\n".format("-"*40))
-            logf.write("{:^15}{:^15}{:^15}\n".format("INDEX1", "INDEX2", "KINETIC"))
-            logf.write("{:^45}\n".format("-"*40))
-            for result in data:
-                logf.write("{:8.0f}{:15.0f}{:17.3f}\n".format(result[1], result[2], result[0]))
-        logf.write("{}".format('\n'))
-
-        if heading == "ENI INTEGRALS":
-            logf.write("{:^45}\n".format(heading))
-            logf.write("{:^45}\n".format("-"*40))
-            logf.write("{:^15}{:^15}{:^15}\n".format("INDEX1","INDEX2","ENI"))
-            logf.write("{:^45}\n".format("-"*40))
-            for result in data:
-                logf.write("{:8.0f}{:15.0f}{:17.3f}\n".format(result[1], result[2], result[0]))
-        logf.write("{}".format('\n'))
-
-        if heading == "ERI INTEGRALS":
-            logf.write("{:^75}\n".format(heading))
-            logf.write("{:^75}\n".format("-"*70))
-            logf.write("{:^15}{:^15}{:^15}{:^15}{:^15}\n".format("INDEX1","INDEX2","INDEX3","INDEX4","ERI"))
-            logf.write("{:^75}\n".format("-"*70))
-            for result in data:
-                logf.write("{:8.0f}{:15.0f}{:15.0f}{:15.0f}{:17.3f}\n".format(result[1], result[2], result[3], result[4], result[0]))
-            logf.write("{}".format('\n'))
-
-def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbose=False, lastaccess=0):
+def integralEngine(molecule, basisobjects, dimensions, calctype="overlap"):
     results     =   []
     if calctype == "overlap":
-        comm            =   MPI.COMM_WORLD
         rank            =   comm.Get_rank()
         nprocs          =   comm.Get_size()
         shellpairs      =   list(combinations_with_replacement(basisobjects, 2))
@@ -128,17 +91,14 @@ def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbo
                     results.append(result)
 
         if rank == 0:
-            molecule.overlapmat =   results
-            if verbose is True:
-                logFile(molecule, results, "OVERLAP INTEGRALS", lastaccess)
-                lastaccess  =   lastaccess+1
+            molecule.overlapmat =   zeros((dimensions, dimensions))
+            for data in results:
+                molecule.overlapmat[data[1], data[2]]   =   data[0]
+                molecule.overlapmat[data[2], data[1]]   =   data[0]
 
-        molecule.overlapmat =   comm.bcast(results, root=0)
-        return lastaccess
-        MPI.Finalize
+        molecule.overlapmat =   comm.bcast(molecule.overlapmat, root=0)
 
     if calctype == "kinetic":
-        comm            =   MPI.COMM_WORLD
         rank            =   comm.Get_rank()
         nprocs          =   comm.Get_size()
         shellpairs      =   list(combinations_with_replacement(basisobjects, 2))
@@ -159,17 +119,14 @@ def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbo
                     results.append(result)
 
         if rank == 0:
-            molecule.kineticmat =   results
-            if verbose is True:
-                logFile(molecule, results, "KINETIC INTEGRALS", lastaccess)
-                lastaccess  =   lastaccess+1
+            molecule.kineticmat =   zeros((dimensions, dimensions))
+            for data in results:
+                molecule.kineticmat[data[1], data[2]]   =   data[0]
+                molecule.kineticmat[data[2], data[1]]   =   data[0]
 
-        molecule.kineticmat =   comm.bcast(results, root=0)
-        return lastaccess
-        MPI.Finalize
+        molecule.kineticmat =   comm.bcast(molecule.kineticmat, root=0)
 
     if calctype == "eni":
-        comm            =   MPI.COMM_WORLD
         rank            =   comm.Get_rank()
         nprocs          =   comm.Get_size()
         shellpairs      =   list(combinations_with_replacement(basisobjects, 2))
@@ -191,17 +148,14 @@ def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbo
                     results.append(result)
 
         if rank == 0:
-            molecule.enimat =   results
-            if verbose is True:
-                logFile(molecule, results, "ENI INTEGRALS", lastaccess)
-                lastaccess  =   lastaccess+1
+            molecule.enimat =   zeros((dimensions, dimensions))
+            for data in results:
+                molecule.enimat[data[1], data[2]]   =   data[0]
+                molecule.enimat[data[2], data[1]]   =   data[0]
 
-        molecule.enimat =   comm.bcast(results, root=0)
-        return lastaccess
-        MPI.Finalize
+        molecule.enimat =   comm.bcast(molecule.enimat, root=0)
 
     if calctype == "eri":
-        comm            =   MPI.COMM_WORLD
         rank            =   comm.Get_rank()
         nprocs          =   comm.Get_size()
         shellquartets  =   []
@@ -234,18 +188,44 @@ def integralEngine(molecule, basisobjects, dimensions, calctype="overlap", verbo
                     results.append(result)
 
         if rank == 0:
-            molecule.erimat =   results
-            if verbose is True:
-                logFile(molecule, results, "ERI INTEGRALS", lastaccess)
-                lastaccess  =   lastaccess+1
+            molecule.erimat =   zeros((dimensions, dimensions, dimensions, dimensions))
+            for result in results:
+                molecule.erimat[result[1], result[2], result[3], result[4]]  =   result[0]
+                molecule.erimat[result[3], result[4], result[1], result[2]]  =   result[0]
+                molecule.erimat[result[2], result[1], result[4], result[3]]  =   result[0]
+                molecule.erimat[result[4], result[3], result[2], result[1]]  =   result[0]
+                molecule.erimat[result[2], result[1], result[3], result[4]]  =   result[0]
+                molecule.erimat[result[4], result[3], result[1], result[2]]  =   result[0]
+                molecule.erimat[result[1], result[2], result[4], result[3]]  =   result[0]
+                molecule.erimat[result[3], result[4], result[2], result[1]]  =   result[0]
 
-        molecule.erimat =   comm.bcast(results, root=0)
-        return lastaccess
-        MPI.Finalize
+        molecule.erimat =   comm.bcast(molecule.erimat, root=0)
 
 
-def scfEngine(molecule, scfiterations=100):
-    pass
+def scfEngine(molecule, dimensions):
+    density     =   zeros((dimensions, dimensions))
+    orthomat    =   canonicalorthogonalization(molecule.overlapmat)
+    diisortho   =   diisorthogonalization(molecule.overlapmat)
+    core        =   computecorehamiltonian(molecule.kineticmat, molecule.enimat) 
+    for iteration in range(1, molecule.maxiterations):
+        if iteration <= 2 or molecule.DIIS == False:
+            orthofock, fock, hamiltonian, orbitals, coeffs, density, rmsdensity, maxdensity =   restrictedhatreefock(molecule.nelectrons, core, diisortho, density, molecule.erimat)
+            molenergy   =   totalenergy(molecule.nuclearenergy, fock, density, core) 
+            print("{:10.0f}{:20.5f}{:20.5f}{:20.5f}".format(iteration, molenergy, log(rmsdensity), log(maxdensity)))
+        if iteration > 2 and molecule.DIIS == True:
+            orthofock, fock, hamiltonian, orbitals, coeffs, density, rmsdensity, maxdensity =   restrictedhatreefockDIIS(molecule, molecule.nelectrons, core, diisortho, density, molecule.erimat)
+            molenergy   =   totalenergy(molecule.nuclearenergy, fock, density, core) 
+            print("{:10.0f}{:20.5f}{:20.5f}{:20.5f}".format(iteration, molenergy, log(rmsdensity), log(maxdensity)))            
+        if log(rmsdensity) <= -20.0 and log(maxdensity) <= -20.0:
+            molecule.scfstatus  =   True
+            molecule.density    =   density
+            molecule.fock       =   fock
+            molecule.orbitals   =   orbitals
+            molecule.coeffs     =   coeffs
+            print("SCF CONVERGENCE ACHIEVED IN {:10.0f} ITERATIONS".format(iteration))
+            break
+
+
 
 class Basis(object):
     """ docstring for Basis
@@ -291,14 +271,13 @@ class Basis(object):
 class Atom(object):
     """docstring for Atom."""
 
-    def __init__(self, atomname, center, charge, mass, basisset='sto-3g'):
+    def __init__(self, atomname, center, charge, basisset='sto-3g'):
         super(Atom, self).__init__()
         self.atomname   =   atomname
         self.center     =   array(center)*1.8897259886
         self.basisset   =   basisset
         self.shells     =   []
         self.charge     =   charge
-        self.mass       =   mass
         self.readBasis()
 
     def readBasis(self):
@@ -356,29 +335,27 @@ class Geometry(object):
 
     def __init__(self, inputfile):
         super(Geometry, self).__init__()
-        self.inputfile          =   inputfile
-        self.charge             =   0
-        self.natoms             =   0
-        self.nelectrons         =   0
-        self.calctype           =   'energy'
-        self.basisset           =   'sto-3g'
-        self.geometry           =   []
-        self.atomobjects        =   []
-        self.inertiatensor      =   zeros((3,3))
-        self.logstatus          =   False
+        self.inputfile      =   inputfile
+        self.charge         =   0
+        self.natoms         =   0
+        self.nelectrons     =   0
+        self.calctype       =   'energy'
+        self.basisset       =   'sto-3g'
+        self.geometry       =   []
+        self.atomobjects    =   []
+        self.density        =   []
+        self.scfstatus      =   False
+        self.maxiterations  =   100
         self.readgeometry()
-        self.symmetry()
-
-        self.overlapmat         =   []
-        self.kineticmat         =   []
-        self.enimat             =   []
-        self.erimat             =   []
-        self.densitymat         =   []
-        self.fockmat            =   []
-        self.corehamiltonian    =   []
-        self.coeffmatrix        =   []
-        self.scfconvstatus      =   False
-        self.maxscfiterations   =   100
+        self.overlapmat     =   []
+        self.kineticmat     =   []
+        self.enimat         =   []
+        self.erimat         =   []
+        self.nuclearenergy  =   0.0
+        self.totalenergy    =   0.0
+        self.diisfock       =   []
+        self.diiserror      =   []
+        self.DIIS
 
     def readgeometry(self):
         with open(self.inputfile) as file:
@@ -399,53 +376,64 @@ class Geometry(object):
                 atomdata        =   atom.split()
                 atomname        =   atomdata[0]
                 charge          =   getatom(atomname)
-                mass            =   getmass(atomname)
                 coords          =   [float(x) for x in atomdata[1:]]
                 self.nelectrons +=  charge
-                self.geometry.append(Atom(atomname, coords, charge, mass, self.basisset))
-            iterverbose     =   inputdata[3+natoms].split()
-            if iterverbose != []:
-                self.maxscfiterations   =   int(iterverbose[0])
-                self.logstatus          =   verbosity[iterverbose[1]]
+                self.geometry.append(Atom(atomname, coords, charge, self.basisset))
+            iterdiisline     =   inputdata[-1].split()
+            if iterdiisline  != []:
+                self.maxiterations  =   int(iterdiisline[0])   
+                self.DIIS           =   True if (iterdiisline[1] == 'T') else False
 
-    def symmetry(self):
-        self.chargecenter   =   zeros(3)
-        totcharge           =   0.0
-        for atom in self.geometry:
-            charge              =   atom.charge
-            center              =   atom.center
-            self.chargecenter   =   self.chargecenter+(charge*center)
-            totcharge           =   totcharge+charge
-        self.chargecenter       =   self.chargecenter/totcharge
-        # shift all atoms with respect to to center of charge
-        for atom in self.geometry:
-            atom.center =   atom.center-self.chargecenter
-            #needs to shift the centers of the basis functions also
-            for shells in atom.shells:
-                shells.center   =   shells.center-self.chargecenter
-        # calculate moment of intertia tensor
-        for atom in self.geometry:
-            self.inertiatensor[0][0]    =   self.inertiatensor[0][0]+((pow(atom.center[1],2)+pow(atom.center[2],2))*atom.mass)  #Ixx
-            self.inertiatensor[1][1]    =   self.inertiatensor[1][1]+((pow(atom.center[0],2)+pow(atom.center[2],2))*atom.mass)  #Iyy
-            self.inertiatensor[2][2]    =   self.inertiatensor[2][2]+((pow(atom.center[0],2)+pow(atom.center[1],2))*atom.mass)  #Izz
-            self.inertiatensor[0][1]    =   self.inertiatensor[0][1]+(-1*atom.center[0]*atom.center[1]*atom.mass)               #Ixy
-            self.inertiatensor[0][2]    =   self.inertiatensor[0][2]+(-1*atom.center[0]*atom.center[2]*atom.mass)               #Ixz
-            self.inertiatensor[1][2]    =   self.inertiatensor[1][2]+(-1*atom.center[1]*atom.center[2]*atom.mass)               #Iyz
-        self.inertiatensor[1][0]    =   self.inertiatensor[0][1]                                                                #Izx
-        self.inertiatensor[2][0]    =   self.inertiatensor[0][2]                                                                #Iyx
-        self.inertiatensor[2][1]    =   self.inertiatensor[1][2]                                                                #Izy
-        principalmoments, principalaxes =   eigh(self.inertiatensor)
 
 inputfilename       =   argv[1]
 logfilename         =   inputfilename[:-4]+".log"
 molecule            =   Geometry(inputfilename)
+comm                =   MPI.COMM_WORLD
 atomObjects         =   [x for x in molecule.geometry]
 basisObjects        =   [y for x in atomObjects for y in x.shells]
 nbasisObjects       =   len(basisObjects)
 for counter, x in enumerate(basisObjects):
     x.basisindex    =   counter
 
-lastaccess  =   integralEngine(molecule, basisObjects, nbasisObjects, "overlap", molecule.logstatus)
-lastaccess  =   integralEngine(molecule, basisObjects, nbasisObjects, "kinetic", molecule.logstatus, lastaccess)
-lastaccess  =   integralEngine(molecule, basisObjects, nbasisObjects, "eni", molecule.logstatus, lastaccess)
-lastaccess  =   integralEngine(molecule, basisObjects, nbasisObjects, "eri", molecule.logstatus, lastaccess)
+integralEngine(molecule, basisObjects, nbasisObjects, "overlap")
+integralEngine(molecule, basisObjects, nbasisObjects, "kinetic")
+integralEngine(molecule, basisObjects, nbasisObjects, "eni")
+integralEngine(molecule, basisObjects, nbasisObjects, "eri")
+
+rank    =   comm.Get_rank()
+if rank == 0:
+    with open("overlap."+inputfilename[:-4]+".txt", "w") as t:
+        for row in molecule.overlapmat:
+            for column in row:
+                t.write("{:10.3f}".format(column))
+            t.write("\n")
+
+    with open("kinetic."+inputfilename[:-4]+".txt", "w") as t:
+        for row in molecule.kineticmat:
+            for column in row:
+                t.write("{:10.3f}".format(column))
+            t.write("\n")
+
+    with open("nuclear."+inputfilename[:-4]+".txt", "w") as t:
+        for row in molecule.enimat:
+            for column in row:
+                t.write("{:10.3f}".format(column))
+            t.write("\n")
+
+    with open("electronic."+inputfilename[:-4]+".txt", "w") as t:
+        for axis1 in molecule.erimat:
+            for axis2 in axis1:
+                for axis3 in axis2:
+                    for axis4 in axis3:
+                        t.write("{:10.3f}".format(axis4))
+                    t.write("\n")
+                t.write("\n")
+            t.write("\n")
+
+    molecule.nuclearenergy  =   nuclearenergy(atomObjects)
+    scfEngine(molecule, nbasisObjects)
+
+    with open("density."+inputfilename[:-4]+".txt", "w") as d:
+        savetxt(d, molecule.density, "%10.3f")
+
+MPI.Finalize()
