@@ -2,7 +2,6 @@ import cython   as  cython
 import numpy    as  np
 cimport numpy   as  np
 
-from scipy.special  import  comb, factorial2
 from libc.math      cimport exp,  pow
 from numpy          import  dot,  pi, diag, amax, trace, isclose
 from numpy.linalg   import  eigh, solve

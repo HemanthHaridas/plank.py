@@ -1,0 +1,10 @@
+README.md
+setup.py
+./routines/hatreefock.c
+./routines/oneelectron.c
+./routines/twoelectron.c
+plank.egg-info/PKG-INFO
+plank.egg-info/SOURCES.txt
+plank.egg-info/dependency_links.txt
+plank.egg-info/requires.txt
+plank.egg-info/top_level.txt

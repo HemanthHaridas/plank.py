@@ -2,9 +2,19 @@ import cython   as  cython
 import numpy    as  np
 cimport numpy   as  np
 
-from scipy.special  import  comb, factorial2
+from scipy.special  import  comb
 from libc.math      cimport exp,  pow
 from numpy          import  dot,  pi
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def factorial2(int number):
+    if number < -1:
+        return 0
+    elif (-1 <= number <= 1):
+        return 1
+    else: 
+        return number*factorial2(number-2)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -127,4 +137,6 @@ def kineticcgtos(basisobject1, basisobject2):
             Kx          +=  0.5*kx*overlapy*overlapz*gaussianintegral*pow(pi/(exponent1+exponent2), 1.5)*normcoeffs1[index1]*coefficients1[index1]*normcoeffs2[index2]*coefficients2[index2]
             Ky          +=  0.5*ky*overlapx*overlapz*gaussianintegral*pow(pi/(exponent1+exponent2), 1.5)*normcoeffs1[index1]*coefficients1[index1]*normcoeffs2[index2]*coefficients2[index2]
             Kz          +=  0.5*kz*overlapx*overlapy*gaussianintegral*pow(pi/(exponent1+exponent2), 1.5)*normcoeffs1[index1]*coefficients1[index1]*normcoeffs2[index2]*coefficients2[index2]
+            print("{:10.3f}{:10.3f}{:10.3f}{:10.3f}".format(Kx, Ky, Kz, Kx+Ky+Kz))
+        print("\n")
     return Kx+Ky+Kz

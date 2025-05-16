@@ -2,7 +2,7 @@ import cython   as  cython
 import numpy    as  np
 cimport numpy   as  np
 
-from scipy.special  import  comb, factorial2, factorial, hyp1f1
+from scipy.special  import  comb, factorial, hyp1f1
 from libc.math      cimport exp,  pow, sqrt
 from numpy          import  dot,  pi
 from numpy.linalg   import norm

@@ -1,7 +1,7 @@
 from numpy                      import array, float32, int32, zeros, pi, exp, dot, savetxt, diag, trace
 from numpy.linalg               import norm, eigh, solve
 from math                       import ceil, sqrt, log
-from scipy.special              import factorial2, comb
+from scipy.special              import comb
 from sys                        import argv
 from itertools                  import combinations_with_replacement, combinations
 from mpi4py                     import MPI
@@ -21,6 +21,13 @@ with open("periodicTable.yaml") as periodic:
 def getatom(atomname):
     return periodicTable[atomname]
 
+def factorial2(number):
+    if number < -1:
+        return 0
+    elif (-1 <= number <= 1):
+        return 1
+    else: 
+        return number * factorial2(number-2)
 
 def nuclearenergy(atomobjects):
     atompairs       =   list(combinations(atomobjects,2))
@@ -248,6 +255,7 @@ class Basis(object):
     def normalizepGTO(self):
         ll, mm, nn          =   self.shell
         totalangmomentum    =   sum(self.shell)
+        print(factorial2(2*ll-1), self.shell)
         prefactorpGTO       =   pow(2, 2*totalangmomentum)*pow(2, 1.5)/factorial2(2*ll-1)/factorial2(2*mm-1)/factorial2(2*nn-1)/pow(pi, 1.5)
 
         for index, exponent in enumerate(self.exponents):
@@ -421,11 +429,11 @@ if rank == 0:
             t.write("\n")
 
     with open("electronic."+inputfilename[:-4]+".txt", "w") as t:
-        for axis1 in molecule.erimat:
-            for axis2 in axis1:
-                for axis3 in axis2:
-                    for axis4 in axis3:
-                        t.write("{:10.3f}".format(axis4))
+        for i in range(0, len(basisObjects)):
+            for j in range(0, len(basisObjects)):
+                for k in range(0, len(basisObjects)):
+                    for l in range(0, len(basisObjects)):
+                        t.write("{:10.3f}{:20.0f}{:10.0f}{:10.0f}{:10.0f}\n".format(molecule.erimat[i,j,k,l], i, j, k, l))
                     t.write("\n")
                 t.write("\n")
             t.write("\n")
